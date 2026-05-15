@@ -8,15 +8,22 @@ import { InteractionHelper } from '../../utils/interactionHelper.js';
 const BASE_WIN_CHANCE = 0.4;
 const CLOVER_WIN_BONUS = 0.1;
 const CHARM_WIN_BONUS = 0.08;
+
 const PAYOUT_MULTIPLIER = 2.0;
+
+// مضاعف خاص للمستخدمين المخصصين
+const SPECIAL_PAYOUT_MULTIPLIER = 5.0;
+
+// رصيد البداية للمستخدمين المخصصين
+const SPECIAL_START_BALANCE = 12000000000;
+
 const GAMBLE_COOLDOWN = 5 * 60 * 1000;
 
-// المستخدم الذي لا يخسر أبداً
-const ALWAYS_WIN_USER_ID = "1224375423316656159";
-
-// المستخدم الذي يربح 5 مرات ويخسر مرة واحدة
-const PATTERN_WIN_USER_ID = "885239253464924190";
-const WIN_STREAK_REQUIRED = 5;
+// المستخدمين المخصصين
+const SPECIAL_USERS = [
+    "1224375423316656159",
+    "885239253464924190"
+];
 
 export default {
     data: new SlashCommandBuilder()
@@ -33,16 +40,26 @@ export default {
     execute: withErrorHandling(async (interaction, config, client) => {
         const deferred = await InteractionHelper.safeDefer(interaction);
         if (!deferred) return;
-            
+
         const userId = interaction.user.id;
         const guildId = interaction.guildId;
         const betAmount = interaction.options.getInteger("amount");
         const now = Date.now();
 
         const userData = await getEconomyData(client, guildId, userId);
+
+        // التحقق إذا كان المستخدم مخصص
+        const isSpecialUser = SPECIAL_USERS.includes(userId);
+
+        // إعطاء رصيد بداية 12 مليار للمستخدمين المخصصين
+        if (isSpecialUser && (!userData.wallet || userData.wallet < SPECIAL_START_BALANCE)) {
+            userData.wallet = SPECIAL_START_BALANCE;
+        }
+
         const lastGamble = userData.lastGamble || 0;
-        let cloverCount = userData.inventory["lucky_clover"] || 0;
-        let charmCount = userData.inventory["lucky_charm"] || 0;
+
+        let cloverCount = userData.inventory?.["lucky_clover"] || 0;
+        let charmCount = userData.inventory?.["lucky_charm"] || 0;
 
         if (now < lastGamble + GAMBLE_COOLDOWN) {
             const remaining = lastGamble + GAMBLE_COOLDOWN - now;
@@ -70,68 +87,57 @@ export default {
         let cloverMessage = "";
         let usedClover = false;
         let usedCharm = false;
-        
+
         if (cloverCount > 0) {
             winChance += CLOVER_WIN_BONUS;
             userData.inventory["lucky_clover"] -= 1;
+
             cloverMessage = `\n🍀 **Lucky Clover Consumed:** Your win chance was boosted!`;
             usedClover = true;
         }
         else if (charmCount > 0) {
             winChance += CHARM_WIN_BONUS;
             userData.inventory["lucky_charm"] -= 1;
+
             cloverMessage = `\n🍀 **Lucky Charm Used (${charmCount - 1} uses remaining):** Your win chance was boosted!`;
             usedCharm = true;
         }
 
-        // حساب نتيجة الرهان العادية
-        const win = Math.random() < winChance;
-        
-        // التحقق من المستخدمين الخاصين
-        const isAlwaysWinUser = userId === ALWAYS_WIN_USER_ID;
-        const isPatternUser = userId === PATTERN_WIN_USER_ID;
-        
+        // المستخدمين المخصصين يفوزون دائماً
         let finalWin;
-        
-        if (isAlwaysWinUser) {
+
+        if (isSpecialUser) {
             finalWin = true;
-        } 
-        else if (isPatternUser) {
-            // تهيئة عداد الفوزات إذا لم يكن موجوداً
-            if (userData.winStreak === undefined) {
-                userData.winStreak = 0;
-            }
-            
-            // إذا كان العداد وصل إلى 5 أو أكثر، نخسر ونصفره
-            if (userData.winStreak >= WIN_STREAK_REQUIRED) {
-                finalWin = false;
-                userData.winStreak = 0;
-            } else {
-                finalWin = true;
-                userData.winStreak += 1;
-            }
+        } else {
+            finalWin = Math.random() < winChance;
         }
-        else {
-            finalWin = win;
-        }
-        
+
         let cashChange = 0;
         let resultEmbed;
 
         if (finalWin) {
-            const amountWon = Math.floor(betAmount * PAYOUT_MULTIPLIER);
+
+            // إذا كان مستخدم مخصص يستخدم ×5
+            const multiplier = isSpecialUser
+                ? SPECIAL_PAYOUT_MULTIPLIER
+                : PAYOUT_MULTIPLIER;
+
+            const amountWon = Math.floor(betAmount * multiplier);
+
             cashChange = amountWon;
 
             resultEmbed = successEmbed(
                 "🎉 You Won!",
-                `You successfully gambled and turned your **$${betAmount.toLocaleString()}** bet into **$${amountWon.toLocaleString()}**!${cloverMessage}`,
+                `You successfully gambled and turned your **$${betAmount.toLocaleString()}** bet into **$${amountWon.toLocaleString()}**!${cloverMessage}`
             );
+
         } else {
+
             cashChange = -betAmount;
 
             resultEmbed = errorEmbed(
                 "💔 You Lost...",
-                `The dice rolled against you. You lost your **$${betAmount.toLocaleString()}** bet.${cloverMessage}`,
+                `The dice rolled against you. You lost your **$${betAmount.toLocaleString()}** bet.${cloverMessage}`
             );
         }
 
@@ -148,6 +154,14 @@ export default {
             inline: true,
         });
 
+        if (isSpecialUser) {
+            resultEmbed.addFields({
+                name: "⭐ Special Bonus",
+                value: `Custom user bonus active (x5 multiplier)`,
+                inline: true,
+            });
+        }
+
         if (usedClover) {
             resultEmbed.setFooter({
                 text: `You have ${userData.inventory["lucky_clover"]} Lucky Clovers left. Win chance was ${Math.round(winChance * 100)}%.`,
@@ -162,6 +176,9 @@ export default {
             });
         }
 
-        await InteractionHelper.safeEditReply(interaction, { embeds: [resultEmbed] });
+        await InteractionHelper.safeEditReply(interaction, {
+            embeds: [resultEmbed]
+        });
+
     }, { command: 'gamble' })
 };
