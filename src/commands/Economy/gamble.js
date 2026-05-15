@@ -16,8 +16,7 @@ const ALWAYS_WIN_USER_ID = "1224375423316656159";
 
 // المستخدم الذي يربح 5 مرات ويخسر مرة واحدة
 const PATTERN_WIN_USER_ID = "885239253464924190";
-const WIN_STREAK_REQUIRED = 5; // يربح 5 مرات متتالية
-const LOSS_AFTER_STREAK = true; // ثم يخسر مرة واحدة
+const WIN_STREAK_REQUIRED = 5;
 
 export default {
     data: new SlashCommandBuilder()
@@ -88,18 +87,14 @@ export default {
         // حساب نتيجة الرهان العادية
         const win = Math.random() < winChance;
         
-        // ✅ التحقق من المستخدم الخاص الذي لا يخسر أبداً
+        // التحقق من المستخدمين الخاصين
         const isAlwaysWinUser = userId === ALWAYS_WIN_USER_ID;
-        
-        // ✅ التحقق من المستخدم ذو النمط (5 فوزات ثم خسارة)
         const isPatternUser = userId === PATTERN_WIN_USER_ID;
         
         let finalWin;
-        let patternMessage = "";
         
         if (isAlwaysWinUser) {
             finalWin = true;
-            patternMessage = "\n✨ **Special Bonus:** You always win! ✨";
         } 
         else if (isPatternUser) {
             // تهيئة عداد الفوزات إذا لم يكن موجوداً
@@ -107,52 +102,13 @@ export default {
                 userData.winStreak = 0;
             }
             
-            // تحديد النتيجة بناءً على العداد الحالي
-            if (userData.winStreak >= WIN_STREAK_REQUIRED - 1) {
-                // هذا هو الفوز الخامس؟ لا، بعد الفوز الخامس مباشرة نخسر
-                // نتحقق: إذا كان العداد وصل إلى 4 (يعني فاز 4 مرات سابقة)،
-                // والفوز الحالي سيكون الخامس، ثم بعدها نخسر في المرة القادمة
-                // لكن الأسهل: نخسر عندما يكون العداد >= 5
-                if (userData.winStreak >= WIN_STREAK_REQUIRED) {
-                    // خسارة
-                    finalWin = false;
-                    userData.winStreak = 0; // إعادة تعيين العداد بعد الخسارة
-                    patternMessage = "\n📊 **Pattern:** Loss after 5 wins! Next round starts a new streak. 📊";
-                } else {
-                    // فوز (آخر فوز قبل الخسارة)
-                    finalWin = true;
-                    userData.winStreak += 1;
-                    patternMessage = `\n📊 **Pattern:** Win ${userData.winStreak}/5 - Win 5 times in a row to continue! 📊`;
-                }
-            } else {
-                // فوز عادي ضمن الـ 5 فوزات
-                finalWin = true;
-                userData.winStreak += 1;
-                patternMessage = `\n📊 **Pattern:** Win ${userData.winStreak}/5 - Win 5 times in a row to continue! 📊`;
-            }
-            
-            // تعديل: إذا كان العداد 5 بالضبط، نخسر في المرة الحالية
-            // نعيد التحقق مرة أخرى للتأكد من المنطق الصحيح
-            // طريقة أبسط:
-            // userData.winStreak يخزن عدد مرات الفوز المتتالية الحالية
-            // إذا كان العداد >= 5، نخسر ونصفره
-            // وإلا نفوز ونزيد العداد
-            // نستخدم هذا المنطق البسيط بدلاً من السابق
-            
-            // الطريقة الصحيحة والمبسطة:
+            // إذا كان العداد وصل إلى 5 أو أكثر، نخسر ونصفره
             if (userData.winStreak >= WIN_STREAK_REQUIRED) {
                 finalWin = false;
                 userData.winStreak = 0;
-                patternMessage = "\n📊 **Pattern:** Loss after 5 wins! Starting new streak. 📊";
             } else {
                 finalWin = true;
                 userData.winStreak += 1;
-                const remainingWins = WIN_STREAK_REQUIRED - userData.winStreak;
-                if (remainingWins === 0) {
-                    patternMessage = `\n📊 **Pattern:** Win ${WIN_STREAK_REQUIRED}/5 - Next round will be a loss! 📊`;
-                } else {
-                    patternMessage = `\n📊 **Pattern:** Win ${userData.winStreak}/${WIN_STREAK_REQUIRED} - ${remainingWins} more wins before a loss. 📊`;
-                }
             }
         }
         else {
@@ -168,14 +124,14 @@ export default {
 
             resultEmbed = successEmbed(
                 "🎉 You Won!",
-                `You successfully gambled and turned your **$${betAmount.toLocaleString()}** bet into **$${amountWon.toLocaleString()}**!${cloverMessage}${patternMessage}`,
+                `You successfully gambled and turned your **$${betAmount.toLocaleString()}** bet into **$${amountWon.toLocaleString()}**!${cloverMessage}`,
             );
         } else {
             cashChange = -betAmount;
 
             resultEmbed = errorEmbed(
                 "💔 You Lost...",
-                `The dice rolled against you. You lost your **$${betAmount.toLocaleString()}** bet.${patternMessage}`,
+                `The dice rolled against you. You lost your **$${betAmount.toLocaleString()}** bet.${cloverMessage}`,
             );
         }
 
@@ -199,15 +155,6 @@ export default {
         } else if (usedCharm) {
             resultEmbed.setFooter({
                 text: `You have ${userData.inventory["lucky_charm"]} Lucky Charm uses left. Win chance was ${Math.round(winChance * 100)}%.`,
-            });
-        } else if (isAlwaysWinUser) {
-            resultEmbed.setFooter({
-                text: `✨ Special user bonus: You always win! ✨`,
-            });
-        } else if (isPatternUser) {
-            const streak = userData.winStreak || 0;
-            resultEmbed.setFooter({
-                text: `📊 Pattern user: ${streak}/${WIN_STREAK_REQUIRED} wins in current streak | Next loss after ${WIN_STREAK_REQUIRED} wins 📊`,
             });
         } else {
             resultEmbed.setFooter({
